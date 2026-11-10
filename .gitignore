@@ -1,0 +1,9 @@
+/build/
+/build-ninja/
+/release/
+/cmake-build-*/
+/.idea/
+*.exe
+*.obj
+*.o
+*.csv~

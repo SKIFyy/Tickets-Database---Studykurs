@@ -1,40 +1,25 @@
 #pragma once
 
-#include <iostream>
-#include <fstream>
-#include <Windows.h>
-#include <clocale>
-#include <cstdlib>
+#include <cstddef>
+#include <string>
+#include <vector>
 
-using namespace std;
-
-//структура данных
-struct Data {
-    unsigned int number, price; //номер поезда, цена билета
-    char start[32]; // точка отправления
-    char end[32]; // точка прибытия
-    char seat[32]; // тип места
+struct Ticket {
+    unsigned int number{};
+    unsigned int price{};
+    std::string start;
+    std::string end;
+    std::string seat;
 };
 
+using Tickets = std::vector<Ticket>;
 
-// функции
-void DataEntry(Data* (&d), int&n); //Ввод данных вручную
-void ReadingData(Data* (&d), int& n, char* fileName);//чтение данных из файла
-void Print(Data* d, int n); //вывод данных
-void DataChange(Data* (&d), int n);//изменение данных
-void DeleteData(Data* (&d), int& n);//удаление данных
-void Copy(Data* (&d_n), Data* (&d_o), int n); //копия данных
-void Copy(Data& d_n, Data& d_o); //копия данных элемента
-void AddData(Data* (&d), int& n); //добавить данные
-void DataSorting(Data* d, int n, int n1, int n2);//сортировка данных
-int sortAA(const void* n1, const void* n2);//доп проверка
-int sortAB(const void* n1, const void* n2);//доп проверка
-int sortBA(const void* n1, const void* n2);//доп проверка
-int sortBB(const void* n1, const void* n2);//доп проверка
-int sortCA(const void* n1, const void* n2);//доп проверка
-int sortCB(const void* n1, const void* n2);//доп проверка
-void SavingData(Data* d, int n, char* fileName);//сохранение данных
-void DataSearch(Data* d, int n);
-void FindMax(Data* d, int n);
-void FindMin(Data* d, int n);
-void Srprice(Data* d, int n);
+bool valid_ticket(const Ticket& ticket, std::string& error);
+bool load_tickets(const std::string& path, Tickets& tickets, std::string& error);
+bool save_tickets(const std::string& path, const Tickets& tickets, std::string& error);
+std::vector<std::size_t> search_tickets(const Tickets& tickets, const std::string& place);
+void sort_tickets(Tickets& tickets, int field, bool ascending);
+double average_price(const Tickets& tickets);
+std::size_t cheapest_ticket(const Tickets& tickets);
+std::size_t dearest_ticket(const Tickets& tickets);
+

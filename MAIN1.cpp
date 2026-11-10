@@ -1,348 +1,382 @@
 #include "Functions.h"
 
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
-int consolmenu;
-void Menu() {
-    cout << "Выберите действие, которое вы хотели бы совершить с билетами: " << endl
-         << "(0) Выход из программы" << endl
-         << "(1) Ввод" << endl
-         << "(2) Вывод, уже имеющихся" << endl
-         << "(3) Изменение" << endl
-         << "(4) Удаление" << endl
-         << "(5) Добавление" << endl
-         << "(6) Сортировка" << endl
-         << "(7) Сохранение" << endl
-         << "(8) Поиск" << endl
-         << "(9) Вывод самых дорогих и дешевых" << endl
-         << "(10) Вывод средней цены билетов" << endl
-         << "Введите цифру: ";
-    cin >> consolmenu;
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <cstdio>
+#include <unistd.h>
+#endif
 
-    // проверка на ввод букв
-    if (getchar() != '\n') {
-        system("cls"); // очистка
-        cin.clear(); // Сбрасываем флаг ошибки, если таковая была
-        cin.ignore(1000, '\n'); // Игнорируем оставшиеся в потоке данные
-        cout << "Нужно ввести цифру!" << endl;
-        system("pause"); // задержка
-        system("cls"); // очистка
-        Menu();
-    }
+namespace {
+void clear_screen() {
+#ifdef _WIN32
+    const HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (console == INVALID_HANDLE_VALUE || !GetConsoleScreenBufferInfo(console, &info)) return;
+    const DWORD cells = static_cast<DWORD>(info.dwSize.X) * info.dwSize.Y;
+    const COORD origin{0, 0};
+    DWORD written = 0;
+    FillConsoleOutputCharacterW(console, L' ', cells, origin, &written);
+    FillConsoleOutputAttribute(console, info.wAttributes, cells, origin, &written);
+    SetConsoleCursorPosition(console, origin);
+#else
+    if (isatty(fileno(stdout))) std::cout << "\x1b[2J\x1b[H";
+#endif
 }
 
-// убираем дублировнаие этих строк:
-void Save(Data* d ,int amountOfData ,char* fileName){
-    system("cls");// очистка
+std::optional<std::string> ask(const std::string& prompt) {
+    std::cout << prompt;
+    std::string answer;
+    if (!std::getline(std::cin, answer)) return std::nullopt;
+    return answer;
+}
 
-    int n;
-    cout << "Вы хотите сохранить в текстовый документ - txt или в csv?(1 или 2): ";
-    cin >> n;
-
-    if (n == 1){
-        cout << "Введите название файла, куда хотите сохранить: ";
-        cin >> fileName;
-        strcat(fileName, ".txt");
-        if (amountOfData != 0) {
-            SavingData(d, amountOfData, fileName);
-        }else {
-            cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-        }
-    }else if(n == 2){
-        cout << "Введите название файла, куда хотите сохранить: ";
-        cin >> fileName;
-        strcat(fileName, ".csv");
-        if (amountOfData != 0) {
-            SavingData(d, amountOfData, fileName);
-        }else {
-            cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-        }
-    }else{
-        cout << "Такого варианта выбора не существует!" << endl;
+std::optional<unsigned int> ask_number(const std::string& prompt, unsigned int min,
+                                        unsigned int max = std::numeric_limits<unsigned int>::max(),
+                                        bool allow_cancel = false) {
+    while (auto answer = ask(prompt)) {
+        if (allow_cancel && *answer == "0") return std::nullopt;
+        try {
+            std::size_t used = 0;
+            const auto value = std::stoull(*answer, &used);
+            if (used == answer->size() && value >= min && value <= max) {
+                return static_cast<unsigned int>(value);
+            }
+        } catch (const std::exception&) {}
+        std::cout << "Р’РІРµРґРёС‚Рµ С†РµР»РѕРµ С‡РёСЃР»Рѕ РѕС‚ " << min << " РґРѕ " << max;
+        if (allow_cancel) std::cout << " РёР»Рё 0 РґР»СЏ РѕС‚РјРµРЅС‹";
+        std::cout << ".\n";
     }
+    return std::nullopt;
+}
+
+std::optional<std::string> ask_nonempty(const std::string& prompt, bool allow_cancel = false) {
+    while (auto answer = ask(prompt)) {
+        if (allow_cancel && *answer == "0") return std::nullopt;
+        if (!answer->empty()) return answer;
+        std::cout << "РџРѕР»Рµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.\n";
+    }
+    return std::nullopt;
+}
+
+void pause_screen() {
+    ask("\nРќР°Р¶РјРёС‚Рµ Enter, С‡С‚РѕР±С‹ РІРµСЂРЅСѓС‚СЊСЃСЏ РІ РјРµРЅСЋ...");
+}
+
+void empty_hint() {
+    std::cout << "Р‘Р°Р·Р° РїСѓСЃС‚Р°. Р—Р°РіСЂСѓР·РёС‚Рµ sample.csv С‡РµСЂРµР· РїСѓРЅРєС‚ 1 РёР»Рё РґРѕР±Р°РІСЊС‚Рµ Р±РёР»РµС‚ С‡РµСЂРµР· РїСѓРЅРєС‚ 5.\n";
+}
+
+bool confirm(const std::string& prompt) {
+    const auto answer = ask(prompt);
+    return answer && (*answer == "Рґ" || *answer == "Р”" ||
+                      *answer == "y" || *answer == "Y" || *answer == "1");
+}
+
+std::optional<Ticket> enter_ticket() {
+    std::cout << "РќР° Р»СЋР±РѕРј С€Р°РіРµ РІРІРµРґРёС‚Рµ 0, С‡С‚РѕР±С‹ РѕС‚РјРµРЅРёС‚СЊ РІРІРѕРґ.\n";
+    const auto number = ask_number("РќРѕРјРµСЂ РїРѕРµР·РґР°: ", 1,
+        std::numeric_limits<unsigned int>::max(), true);
+    if (!number) return std::nullopt;
+    const auto price = ask_number("Р¦РµРЅР° Р±РёР»РµС‚Р° (СЂСѓР±.): ", 1,
+        std::numeric_limits<unsigned int>::max(), true);
+    if (!price) return std::nullopt;
+    const auto start = ask_nonempty("РџСѓРЅРєС‚ РѕС‚РїСЂР°РІР»РµРЅРёСЏ: ", true);
+    if (!start) return std::nullopt;
+    const auto end = ask_nonempty("РџСѓРЅРєС‚ РїСЂРёР±С‹С‚РёСЏ: ", true);
+    if (!end) return std::nullopt;
+    const auto seat = ask_nonempty("РўРёРї РјРµСЃС‚Р°: ", true);
+    if (!seat) return std::nullopt;
+    Ticket ticket{*number, *price, *start, *end, *seat};
+    std::string error;
+    if (!valid_ticket(ticket, error)) {
+        std::cout << error << '\n';
+        return std::nullopt;
+    }
+    return ticket;
+}
+
+std::size_t display_width(const std::string& text) {
+    std::size_t width = 0;
+    for (unsigned char c : text) {
+        if ((c & 0xC0) != 0x80) ++width;
+    }
+    return width;
+}
+
+std::string cell(std::string text, std::size_t width) {
+    if (display_width(text) > width) {
+        std::string clipped;
+        std::size_t characters = 0;
+        for (std::size_t i = 0; i < text.size() && characters < width - 1;) {
+            const unsigned char first = static_cast<unsigned char>(text[i]);
+            const std::size_t bytes = first < 0x80 ? 1 : first < 0xE0 ? 2 : first < 0xF0 ? 3 : 4;
+            clipped.append(text, i, bytes);
+            i += bytes;
+            ++characters;
+        }
+        text = clipped + "вЂ¦";
+    }
+    return text + std::string(width - display_width(text), ' ');
+}
+
+void table_border() {
+    for (const auto width : {3, 7, 8, 16, 16, 9}) {
+        std::cout << '+' << std::string(width + 2, '-');
+    }
+    std::cout << "+\n";
+}
+
+void table_row(const std::vector<std::string>& values) {
+    const std::size_t widths[]{3, 7, 8, 16, 16, 9};
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        std::cout << "| " << cell(values[i], widths[i]) << ' ';
+    }
+    std::cout << "|\n";
+}
+
+void print_tickets(const Tickets& tickets) {
+    if (tickets.empty()) { empty_hint(); return; }
+    table_border();
+    table_row({"в„–", "РџРѕРµР·Рґ", "Р¦РµРЅР°", "РћС‚РєСѓРґР°", "РљСѓРґР°", "РњРµСЃС‚Рѕ"});
+    table_border();
+    for (std::size_t i = 0; i < tickets.size(); ++i) {
+        const auto& t = tickets[i];
+        table_row({std::to_string(i + 1), std::to_string(t.number), std::to_string(t.price),
+                   t.start, t.end, t.seat});
+    }
+    table_border();
+}
+
+bool save(const Tickets& tickets, std::string& path, bool& changed) {
+    const auto name = ask("РРјСЏ С„Р°Р№Р»Р° Р±РµР· .csv (Enter вЂ” " + path + ", 0 вЂ” РѕС‚РјРµРЅР°): ");
+    if (!name || *name == "0") {
+        std::cout << "РЎРѕС…СЂР°РЅРµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+        return false;
+    }
+    std::string destination = name->empty() ? path : *name;
+    std::string extension = destination.size() >= 4 ? destination.substr(destination.size() - 4) : "";
+    for (char& c : extension) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (extension != ".csv") destination += ".csv";
+    std::cout << "РС‚РѕРіРѕРІС‹Р№ С„Р°Р№Р»: " << destination << '\n';
+    std::ifstream existing(destination, std::ios::binary);
+    const bool exists = existing.good();
+    existing.close();
+    if (!confirm(exists ? "Р¤Р°Р№Р» СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚. РџРµСЂРµР·Р°РїРёСЃР°С‚СЊ? (Рґ/РЅ): "
+                        : "РЎРѕС…СЂР°РЅРёС‚СЊ РґР°РЅРЅС‹Рµ РІ СЌС‚РѕС‚ С„Р°Р№Р»? (Рґ/РЅ): ")) {
+        std::cout << "РЎРѕС…СЂР°РЅРµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+        return false;
+    }
+    std::string error;
+    if (!save_tickets(destination, tickets, error)) {
+        std::cout << error << '\n';
+        return false;
+    }
+    path = destination;
+    changed = false;
+    std::cout << "РЎРѕС…СЂР°РЅРµРЅРѕ: " << path << '\n';
+    return true;
+}
+
+bool edit_ticket(Ticket& original) {
+    std::cout << "Р§С‚Рѕ РёР·РјРµРЅРёС‚СЊ?\n"
+              << "0 вЂ” РѕС‚РјРµРЅР°    1 вЂ” РЅРѕРјРµСЂ     2 вЂ” С†РµРЅР°      3 вЂ” РѕС‚РїСЂР°РІР»РµРЅРёРµ\n"
+              << "4 вЂ” РїСЂРёР±С‹С‚РёРµ  5 вЂ” РјРµСЃС‚Рѕ     6 вЂ” РІРµСЃСЊ Р±РёР»РµС‚\n";
+    const auto field = ask_number("Р’С‹Р±РѕСЂ: ", 0, 6);
+    if (!field) return false;
+    if (*field == 0) return false;
+    if (*field == 6) {
+        const auto replacement = enter_ticket();
+        if (!replacement) return false;
+        if (!confirm("РџСЂРёРјРµРЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ Р±РёР»РµС‚Р°? (Рґ/РЅ): ")) return false;
+        original = *replacement;
+        return true;
+    }
+    Ticket candidate = original;
+    if (*field == 1 || *field == 2) {
+        std::cout << "Р’РІРµРґРёС‚Рµ 0 РґР»СЏ РѕС‚РјРµРЅС‹.\n";
+        const auto value = ask_number(*field == 1 ? "РќРѕРІС‹Р№ РЅРѕРјРµСЂ РїРѕРµР·РґР°: " : "РќРѕРІР°СЏ С†РµРЅР°: ",
+            1, std::numeric_limits<unsigned int>::max(), true);
+        if (!value) return false;
+        if (*field == 1) candidate.number = *value;
+        else candidate.price = *value;
+    } else {
+        std::cout << "Р’РІРµРґРёС‚Рµ 0 РґР»СЏ РѕС‚РјРµРЅС‹.\n";
+        const auto value = ask_nonempty(
+            *field == 3 ? "РќРѕРІС‹Р№ РїСѓРЅРєС‚ РѕС‚РїСЂР°РІР»РµРЅРёСЏ: " :
+            *field == 4 ? "РќРѕРІС‹Р№ РїСѓРЅРєС‚ РїСЂРёР±С‹С‚РёСЏ: " : "РќРѕРІС‹Р№ С‚РёРї РјРµСЃС‚Р°: ", true);
+        if (!value) return false;
+        if (*field == 3) candidate.start = *value;
+        else if (*field == 4) candidate.end = *value;
+        else candidate.seat = *value;
+    }
+    std::string error;
+    if (!valid_ticket(candidate, error)) {
+        std::cout << error << " РР·РјРµРЅРµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+        return false;
+    }
+    if (!confirm("РџСЂРёРјРµРЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ Р±РёР»РµС‚Р°? (Рґ/РЅ): ")) return false;
+    original = std::move(candidate);
+    return true;
+}
+
+void menu(std::size_t count) {
+    std::cout << "Р‘РђР—Рђ Р–Р•Р›Р•Р—РќРћР”РћР РћР–РќР«РҐ Р‘РР›Р•РўРћР’  |  Р·Р°РїРёСЃРµР№: " << count << "\n\n"
+              << "0 вЂ” РІС‹С…РѕРґ\n1 вЂ” Р·Р°РіСЂСѓР·РёС‚СЊ CSV\n2 вЂ” РїРѕРєР°Р·Р°С‚СЊ Р±РёР»РµС‚С‹\n"
+              << "3 вЂ” РёР·РјРµРЅРёС‚СЊ Р±РёР»РµС‚\n4 вЂ” СѓРґР°Р»РёС‚СЊ Р±РёР»РµС‚\n5 вЂ” РґРѕР±Р°РІРёС‚СЊ Р±РёР»РµС‚\n"
+              << "6 вЂ” СЃРѕСЂС‚РёСЂРѕРІР°С‚СЊ\n7 вЂ” СЃРѕС…СЂР°РЅРёС‚СЊ CSV\n8 вЂ” РЅР°Р№С‚Рё РїРѕ РїСѓРЅРєС‚Сѓ\n"
+              << "9 вЂ” СЃР°РјС‹Р№ РґРѕСЂРѕРіРѕР№ Рё РґРµС€С‘РІС‹Р№\n10 вЂ” СЃСЂРµРґРЅСЏСЏ С†РµРЅР°\n\n";
+    if (count == 0) empty_hint();
+}
 }
 
 int main() {
-    // перевод на русский
-    system("chcp 1251");
-    setlocale(LC_ALL, "Russian");
-
-    system("cls"); // очистка
-    cout << "Добро пожаловать в базу данных билетов на поезда!" << endl;
-    system("pause"); // задержка консоли
-
-    system("cls"); // очистка
-    cout << "Здесь вы можете совершить разные дайствия с уже имеющимися билетами, или добавить новые." << endl;
-    system("pause"); // задержка консоли
-
-    system("cls"); // очистка
-    cout << "Хорошей работы!" << endl;
-    system("pause"); // задержка консоли
-
-    // инициализация данных
-    int _actions, _actions1, amountOfData = 0, s = 0;
-    char fileName[16] = "999.csv"; // значение по умолчанию 999.csv
-
-    // массив данных
-    Data* d = new Data[amountOfData];
-
-    ReadingData(d, amountOfData, fileName); // по умолчанию занесем начальные данные
-    system("cls"); // очистка
-    cout << "Внесена база данных по умолчанию." << endl;
-    Menu();
-
-    while (consolmenu != -1) {
-        switch (consolmenu) {
-            case 0:
-                system("cls"); //очистка консоли
-
-                if (s != 0) {
-                    cout << "Ваши данные не сохранены! Хотите их сохранить?(0-Выйти, 1-Сохранить):";
-                    cin >> _actions;
-                    if (_actions == 0) {
-                        exit(0);
-                    } else if (_actions == 1) {
-                        Save(d, amountOfData, fileName);
-                        s = 0; // обнуление флага изменения данных
-                    } else {
-                        cout << "Такого варианта выбора не существует!" << endl;
-                    }
-                }else{
-                    exit(0);
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+    Tickets tickets;
+    std::string save_path = "tickets.csv";
+    std::string error;
+    bool changed = false;
+    while (true) {
+        clear_screen();
+        menu(tickets.size());
+        const auto action = ask_number("Р”РµР№СЃС‚РІРёРµ: ", 0, 10);
+        if (!action) return 0;
+        clear_screen();
+        if (*action == 0) {
+            if (changed) {
+                if (confirm("Р•СЃС‚СЊ РЅРµСЃРѕС…СЂР°РЅС‘РЅРЅС‹Рµ РёР·РјРµРЅРµРЅРёСЏ. РЎРѕС…СЂР°РЅРёС‚СЊ? (Рґ/РЅ): ")) {
+                    if (!save(tickets, save_path, changed)) { pause_screen(); continue; }
                 }
-
-                system("pause"); // задержка консоли
-                system("cls"); // снова очистка
-                Menu();
-            case 1:
-                system("cls"); //очистка консоли
-                cout << "Хотите ввести данные вручную или из файла? (Выберите 1 или 2): ";
-                cin >> _actions;
-
-                system("cls"); //очистка консоли
-
-                if (_actions == 1) {
-                    //ввод вручную
-                    DataEntry(d, amountOfData);
-
-                    s += 1; // флаг изменения данных
-                } else if (_actions == 2) {
-                    system("cls");// очистка
-
-                    //ввод из файла
-                    cout << "Вы хотите загрузить данные из текстового документа - txt или из csv?(1 или 2): ";
-                    cin >> _actions;
-
-                    system("cls");// очистка
-
-                    if (_actions == 1) {
-
-                        cout << "Введите название файла откуда хотите загрузить данные: ";
-                        cin >> fileName;
-                        strcat(fileName, ".txt");
-
-                        ReadingData(d, amountOfData, fileName);
-                    }else if(_actions == 2){
-
-                        cout << "Введите название файла откуда хотите загрузить данные: ";
-                        cin >> fileName;
-                        strcat(fileName, ".csv");
-
-                        ReadingData(d, amountOfData, fileName);
-                    }else{
-                        cout << "Такого варианта выбора не существует!" << endl;
-                    }
-                } else {
-                    cout << "Такого варианта выбора не существует!" << endl;
-                }
-
-                system("pause"); // задержка консоли
-                system("cls"); // снова очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 2:
-                system("cls"); // очистка
-
-                if (amountOfData != 0) {
-                    Print(d, amountOfData);
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 3:
-                system("cls"); // очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    DataChange(d, amountOfData);
-
-                    Print(d, amountOfData);
-
-                    s += 1; // флаг изменения данных
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                system("pause");
-                system("cls");
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 4:
-                system("cls"); // снова очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    DeleteData(d, amountOfData);
-
-                    s += 1; // флаг изменения данных
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                Print(d, amountOfData);
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 5:
-                system("cls"); // очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    AddData(d, amountOfData);
-                    amountOfData++;
-
-                    Print(d, amountOfData);
-
-                    s += 1; // флаг изменения данных
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 6:
-                system("cls");// очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    cout << "По какому столбцу вы бы хотели отсортировать билеты?(от 1 до 5): ";
-                    cin >> _actions;
-
-
-                    if (_actions >= 1 && _actions <= 5){
-
-                        cout << "Вы бы хотели отсортировать по возрастанию или убыванию, от А до Я или от Я до А?(Выберите 1 или 2): ";
-                        cin >> _actions1;
-
-                        if (_actions1 == 1 || _actions1 == 2) {
-                            DataSorting(d, amountOfData, _actions, _actions1);
-
-                            Print(d, amountOfData);
-
-                            s += 1; // флаг изменения данных
-                        }else{
-                            cout << "Такого варианта выбора не существует!" << endl;
-                        }
-                    }else{
-                        cout << "Такого варианта выбора не существует!" << endl;
-                    }
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 7:
-
-                Save(d, amountOfData, fileName);
-                s = 0; // обнуление флага изменения данных
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 8:
-                system("cls"); // очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    DataSearch(d, amountOfData);
-
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 9:
-                system("cls"); // очистка
-
-                Print(d, amountOfData);
-
-                cout << "Вы хотите найти самый дорогой или самый дешевый билет?(Введите 1 или 2): ";
-                cin >> _actions;
-                if (amountOfData != 0) {
-                    if (_actions == 1) {
-                        FindMax(d, amountOfData);
-                    } else if (_actions == 2) {
-                        FindMin(d, amountOfData);
-                    } else {
-                        cout << "Такого варианта выбора не существует!" << endl;
-                    }
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            case 10:
-                system("cls"); // очистка
-
-                Print(d, amountOfData);
-
-                if (amountOfData != 0) {
-                    Srprice(d, amountOfData);
-                } else {
-                    cout << "В данных ничего нет! Введите данные с помощью кнопки в меню." << endl;
-                }
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
-            ////////////////////////////////////////////////////
-            default:
-                system("cls"); // очистка
-                cout << "Вы неверно ввели номер действия!" << endl;
-                system("pause"); // задержка
-                system("cls"); // очистка
-                Menu();
-                break;
+            }
+            return 0;
         }
+        if (*action == 1) {
+            if (changed) {
+                if (!confirm("РќРµСЃРѕС…СЂР°РЅС‘РЅРЅС‹Рµ РёР·РјРµРЅРµРЅРёСЏ Р±СѓРґСѓС‚ РїРѕС‚РµСЂСЏРЅС‹. РџСЂРѕРґРѕР»Р¶РёС‚СЊ? (Рґ/РЅ): ")) {
+                    std::cout << "Р—Р°РіСЂСѓР·РєР° РѕС‚РјРµРЅРµРЅР°.\n";
+                    pause_screen();
+                    continue;
+                }
+            }
+            const auto name = ask_nonempty("РџСѓС‚СЊ Рє CSV-С„Р°Р№Р»Сѓ (РЅР°РїСЂРёРјРµСЂ, sample.csv; 0 вЂ” РѕС‚РјРµРЅР°): ", true);
+            if (!name) {
+                std::cout << "Р—Р°РіСЂСѓР·РєР° РѕС‚РјРµРЅРµРЅР°.\n";
+            } else if (load_tickets(*name, tickets, error)) {
+                changed = false;
+                std::cout << "Р—Р°РіСЂСѓР¶РµРЅРѕ Р±РёР»РµС‚РѕРІ: " << tickets.size() << "\n\n";
+                print_tickets(tickets);
+            } else {
+                std::cout << error << '\n';
+            }
+        } else if (*action == 2) {
+            print_tickets(tickets);
+        } else if (*action == 3) {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                print_tickets(tickets);
+                const auto index = ask_number("РќРѕРјРµСЂ Р·Р°РїРёСЃРё (0 вЂ” РѕС‚РјРµРЅР°): ", 1,
+                    static_cast<unsigned int>(tickets.size()), true);
+                if (!index) {
+                    std::cout << "РР·РјРµРЅРµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+                } else if (edit_ticket(tickets[*index - 1])) {
+                    changed = true;
+                    std::cout << "Р‘РёР»РµС‚ РёР·РјРµРЅС‘РЅ.\n\n";
+                    print_tickets(tickets);
+                } else {
+                    std::cout << "РР·РјРµРЅРµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+                }
+            }
+        } else if (*action == 4) {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                print_tickets(tickets);
+                const auto index = ask_number("РќРѕРјРµСЂ Р·Р°РїРёСЃРё (0 вЂ” РѕС‚РјРµРЅР°): ", 1,
+                    static_cast<unsigned int>(tickets.size()), true);
+                if (index && confirm("РЈРґР°Р»РёС‚СЊ РІС‹Р±СЂР°РЅРЅС‹Р№ Р±РёР»РµС‚? (Рґ/РЅ): ")) {
+                    tickets.erase(tickets.begin() + (*index - 1));
+                    changed = true;
+                    std::cout << "Р‘РёР»РµС‚ СѓРґР°Р»С‘РЅ.\n\n";
+                    print_tickets(tickets);
+                } else {
+                    std::cout << "РЈРґР°Р»РµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+                }
+            }
+        } else if (*action == 5) {
+            const auto ticket = enter_ticket();
+            if (ticket && confirm("Р”РѕР±Р°РІРёС‚СЊ СЌС‚РѕС‚ Р±РёР»РµС‚? (Рґ/РЅ): ")) {
+                tickets.push_back(*ticket);
+                changed = true;
+                std::cout << "Р‘РёР»РµС‚ РґРѕР±Р°РІР»РµРЅ.\n\n";
+                print_tickets(tickets);
+            } else {
+                std::cout << "Р”РѕР±Р°РІР»РµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ.\n";
+            }
+        } else if (*action == 6) {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                std::cout << "1 вЂ” РЅРѕРјРµСЂ РїРѕРµР·РґР°, 2 вЂ” С†РµРЅР°, 3 вЂ” РѕС‚РїСЂР°РІР»РµРЅРёРµ, 4 вЂ” РїСЂРёР±С‹С‚РёРµ, 5 вЂ” РјРµСЃС‚Рѕ\n";
+                const auto field = ask_number("РџРѕР»Рµ (0 вЂ” РѕС‚РјРµРЅР°): ", 1, 5, true);
+                if (!field) {
+                    std::cout << "РЎРѕСЂС‚РёСЂРѕРІРєР° РѕС‚РјРµРЅРµРЅР°.\n";
+                } else {
+                    const auto order = ask_number("1 вЂ” РїРѕ РІРѕР·СЂР°СЃС‚Р°РЅРёСЋ, 2 вЂ” РїРѕ СѓР±С‹РІР°РЅРёСЋ, 0 вЂ” РѕС‚РјРµРЅР°: ", 1, 2, true);
+                    if (!order) {
+                        std::cout << "РЎРѕСЂС‚РёСЂРѕРІРєР° РѕС‚РјРµРЅРµРЅР°.\n";
+                    } else {
+                        sort_tickets(tickets, static_cast<int>(*field), *order == 1);
+                        changed = true;
+                        print_tickets(tickets);
+                    }
+                }
+            }
+        } else if (*action == 7) {
+            if (tickets.empty() && !changed) empty_hint();
+            else save(tickets, save_path, changed);
+        } else if (*action == 8) {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                const auto place = ask_nonempty("РџСѓРЅРєС‚ РјР°СЂС€СЂСѓС‚Р° (0 вЂ” РѕС‚РјРµРЅР°): ", true);
+                if (!place) {
+                    std::cout << "РџРѕРёСЃРє РѕС‚РјРµРЅС‘РЅ.\n";
+                } else {
+                    const auto matches = search_tickets(tickets, *place);
+                    std::cout << "РќР°Р№РґРµРЅРѕ: " << matches.size() << '\n';
+                    if (!matches.empty()) {
+                        Tickets found;
+                        for (auto index : matches) found.push_back(tickets[index]);
+                        print_tickets(found);
+                    }
+                }
+            }
+        } else if (*action == 9) {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                std::cout << "РЎР°РјС‹Р№ РґРµС€С‘РІС‹Р№:\n";
+                print_tickets({tickets[cheapest_ticket(tickets)]});
+                std::cout << "\nРЎР°РјС‹Р№ РґРѕСЂРѕРіРѕР№:\n";
+                print_tickets({tickets[dearest_ticket(tickets)]});
+            }
+        } else {
+            if (tickets.empty()) { empty_hint(); }
+            else {
+                std::cout << "РЎСЂРµРґРЅСЏСЏ С†РµРЅР°: " << std::fixed << std::setprecision(2)
+                          << average_price(tickets) << " СЂСѓР±.\n";
+            }
+        }
+        pause_screen();
     }
 }
